@@ -20,7 +20,7 @@ var cmd = require('node-cmd');
 function awaitJobCompletion(jobId, maxRC=0, callback, tries = 30, wait = 1000) {
   if (tries > 0) {
       sleep(wait);
-      cmd.get(
+      cmd.get(  
       'bright jobs view job-status-by-jobid ' + jobId + ' --rff retcode --rft string',
       function (err, data, stderr) {
           retcode = data.trim();
@@ -61,3 +61,94 @@ gulp.task('build-cobol', 'Build COBOL element', function (callback) {
     }
   });
 });
+
+gulp.task('link-cobol', 'Build COBOL element', function (callback) {
+  var endevor = (typeof process.env.ENDEVOR === "undefined") ? "" : process.env.ENDEVOR,
+      command = "bright endevor generate element MARBLE01 --type LNK --override-signout --maxrc 0 " + endevor;
+
+  cmd.get(command, function (err, data, stderr) {
+    if(err){
+      callback(err);
+    } else if (stderr){
+      callback(new Error("\nCommand:\n" + command + "\n" + stderr + "Stack Trace:"));
+    } else {
+      callback();
+    }
+  });
+});
+
+
+gulp.task('copy-load', 'Copy LOADLIB to test environment', function (callback) {
+  var fmp = (typeof process.env.FMP === "undefined") ? "" : process.env.FMP,
+      command = 'bright file-master-plus copy data-set "PRODUCT.NDVR.MARBLES.MARBLES.D1.LOADLIB" "CICS.TRAIN.MARBLES.LOADLIB" -m MARBLE01 ' + fmp; 
+
+  cmd.get(command, function (err, data, stderr) {
+    if(err){
+      callback(err);
+    } else if (stderr){
+      callback(new Error("\nCommand:\n" + command + "\n" + stderr + "Stack Trace:"));
+    } else {
+      callback();
+    }
+  });
+});
+
+gulp.task('copy-dbrm', 'Copy DBRMLIB to test environment', function (callback) {
+  var fmp = (typeof process.env.FMP === "undefined") ? "" : process.env.FMP,
+       command = 'bright file-master-plus copy data-set "PRODUCT.NDVR.MARBLES.MARBLES.D1.DBRMLIB" "BRIGHT.MARBLES.DBRMLIB" -m MARBLE01 ' + fmp;
+
+  cmd.get(command, function (err, data, stderr) {
+    if(err){
+      callback(err);
+    } else if (stderr){
+      callback(new Error("\nCommand:\n" + command + "\n" + stderr + "Stack Trace:"));
+    } else {
+      callback();
+    };
+  });
+});
+
+gulp.task('bind-n-grant', 'Bind & Grant Job', function (callback) {
+  var command = 'bright jobs submit data-set "cust001.MARBLES.JCL(MARBIND)" --rff jobid --rft string';
+  
+  // Submit job, await completion
+  cmd.get(command, function (err, data, stderr) {
+    if(err){
+      callback(err);
+    } else if (stderr){
+      callback(new Error("\nCommand:\n" + command + "\n" + stderr + "Stack Trace:"));
+    } else {
+      // Strip unwanted whitespace/newline
+      var jobId = data.trim();
+      
+      // Await the jobs completion
+      awaitJobCompletion(jobId, 4, function(err){
+        if(err){
+          callback(err);
+        } else{
+          callback();
+        }
+      });
+    }
+  });
+});
+
+gulp.task('cics-refresh', 'Refresh(new-copy) MARBLE01 CICS Program', function (callback) {
+  var cics = (typeof process.env.CICS === "undefined") ? "" : process.env.CICS,
+      command = 'bright cics refresh program "MARBLE01" ' + cics;
+
+  cmd.get(command, function (err, data, stderr) {
+    if(err){
+      callback(err);
+    } else if (stderr){
+      callback(new Error("\nCommand:\n" + command + "\n" + stderr + "Stack Trace:"));
+    } else {
+      callback();
+    };
+  });
+});
+
+
+gulp.task('build','Build program', gulpSequence('build-cobol','link-cobol'));
+
+gulp.task('deploy', 'Deploy Program', gulpSequence('copy-dbrm','copy-load','bind-n-grant','cics-refresh'));
